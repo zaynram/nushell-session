@@ -121,8 +121,11 @@ def is-editor-pane []: record<id: int, title: string> -> bool {
 
 # Open a file in an editor pane.
 export def --env --wrapped edit [
+  target: path # Open this file or directory in the editor
+  --root (-r): directory # Set this as the root working directory
   ...rest: string # Arguments to pass through to the `edit` invocation
 ]: oneof<nothing, path, record<name: path>> -> nothing {
+  let root: path = $root | default { pwd }
   let args: list = match ($in | describe) {
     string => $in
     _ => { default [] | get --optional name }
@@ -133,7 +136,7 @@ export def --env --wrapped edit [
 
   if $pane.id? != null {
     zellij action focus-pane-id $pane.id
-    zellij edit --in-place ...$args out+err>|
+    zellij edit --cwd $root --in-place $target ...$args out+err>|
   } else {
     zellij edit ...$args out+err>|
   } | return
