@@ -1,6 +1,6 @@
 {
   name: session
-  version: "0.1.1"
+  version: "0.1.2"
   type: module
   description: "Zellij session management helpers: info, del, swap, run, boot, edit"
   license: MIT
