@@ -121,23 +121,37 @@ def is-editor-pane []: record<id: int, title: string> -> bool {
 
 # Open a file in an editor pane.
 export def --env --wrapped edit [
-  target: path # Open this file or directory in the editor
-  --root (-r): directory # Set this as the root working directory
+  target?: path # Open this file or directory in the editor
+  --help (-h) # Show the help message for this function
+  --pass-help (-H) # Show the `zellij edit` help message
+  --workspace (-w): directory # Set this as the root working directory
+  --close-pane (-c) # Close the replaced pane instead of suspending it
   ...rest: string # Arguments to pass through to the `edit` invocation
-]: oneof<nothing, path, record<name: path>> -> nothing {
-  let root: path = $root | default { pwd }
-  let args: list = match ($in | describe) {
+]: oneof<nothing, path, record<name: path>> -> oneof<nothing, string> {
+  if $pass_help { zellij edit --help out+err>| return $in }
+  let root: path = $workspace | default { pwd }
+  let args: list = match ($in | describe | split words | first) {
     string => $in
-    _ => { default [] | get --optional name }
-  } | prepend $rest | compact | uniq
-  let pane: record = zellij action list-panes --json
-    | from json
-    | where ($it | is-editor-pane) | last
+    record => { get --optional name }
+    _ if $target != null => $target
+    _ => { error make --unspanned 'no path was provided' }
+  } | prepend $rest
+    | if $close_pane {
+      append [--close-replace-pane]
+    } else { }
+    | compact | uniq
 
-  if $pane.id? != null {
-    zellij action focus-pane-id $pane.id
-    zellij edit --cwd $root --in-place $target ...$args out+err>|
+  let id: string = zellij action list-panes --json
+    | from json
+    | where ($it | is-editor-pane)
+    | last
+    | get --optional id
+
+  if $id != null {
+    zellij action focus-pane-id $id
+    zellij edit --cwd $root --in-place ...$args out+err>|
   } else {
     zellij edit ...$args out+err>|
-  } | return
+  } | ignore
+  return
 }
