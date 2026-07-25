@@ -76,20 +76,17 @@ def layout-name []: nothing -> list {
   glob --no-dir --no-symlink layouts/*.kdl | path parse | get stem
 }
 
-# Save a `zellij run` terminal id to `$env.LAST_TERMINAL_ID`.
-export def --env --wrapped run [
+# Run a fire-and-forget command with `zellij run`.
+export def --wrapped async [
   ...rest: string # The commandline to run with `zellij run`
-  --args: list<string> = [] # Arguments to pass to `zellij run` (not the commandline itself).
-]: nothing -> string {
-  let text: string = zellij run ...$args -- ...$rest | to text
-  let id: int = try {
-    $text | parse `terminal_{n}` | first | get n | into int
-  } catch {
-    error make 'unable to parse terminal_id'
+]: nothing -> record {
+  let id: int = job spawn --description=$"z-run-(random chars --length=10)" {
+    zellij run --floating --close-on-exit -- ...$rest;
+    zellij action hide-floating-panes;
   }
-  load-env {LAST_TERMINAL_ID: $id}
-  return $text
+  job list | where id == $id | first
 }
+
 # Enter a Zellij session, creating it if it does not exist.
 export def --env boot [
   name?: string@session-name # The target session name (can be set with `$env.ZELLIJ_AUTO_SESSION`)
