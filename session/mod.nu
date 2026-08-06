@@ -95,7 +95,7 @@ export def --env boot [
   --layout (-l): string@layout-name # Set the layout of the session
 ]: nothing -> nothing {
   if $name != null and $set_default { $env.ZELLIJ_AUTO_SESSION = $name }
-  let session: string = $name | default $env.ZELLIJ_AUTO_SESSION?
+  let session: oneof<nothing, string> = $name | default $env.ZELLIJ_AUTO_SESSION?
   let args: list<string> = if $attach {
     if $layout != null { [options --default-layout $layout] }
     | prepend [attach --create ...(append $session | compact)]
@@ -138,17 +138,16 @@ export def --env --wrapped edit [
     } else { }
     | compact | uniq
 
-  let id: string = zellij action list-panes --json
-    | from json
-    | where ($it | is-editor-pane)
-    | last
-    | get --optional id
-
-  if $id != null {
-    zellij action focus-pane-id $id
-    zellij edit --cwd $root --in-place ...$args out+err>|
-  } else {
-    zellij edit ...$args out+err>|
+  zellij action list-panes --json
+  | from json
+  | where ($it | is-editor-pane)
+  | last
+  | match $in { 
+    null => { zellij edit ...$args out+err>| }
+    {id: $n} => { 
+      zellij action focus-pane-id $n
+      zellij edit --cwd $root --in-place ...$args out+err>|
+    }
   } | ignore
   return
 }
