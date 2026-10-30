@@ -23,7 +23,7 @@ def --wrapped _proxy-completion [...rest: string]: nothing -> list {
 
 def _session_actions []: nothing -> list { _proxy-completion action }
 def _session_switch []: nothing -> list { _proxy-completion switch-session }
-def _session_run []: nothing -> list { _proxy-completion run }
+def _session_run [place]: nothing -> list { _proxy-completion run ...$place.command }
 def _session_attach []: nothing -> list { _proxy-completion attach }
 def _session_edit []: nothing -> list { _proxy-completion edit }
 
