@@ -103,25 +103,19 @@ export def --wrapped manage [
 # Run a command with in a Zellij session.
 export def --wrapped exec [
   commands: string
-  # The commandline to run with `zellij run`
-  --close-on-exit (-c) = true
-  # Close the pane after the command execution completes
-  --floating (-f) = true
-  # Run the command in a new floating pane
+  # Commandline to run with Zellij
+  --as-job (-j)
+  # Run the command in a background job
   ...rest: string@_session_run_options
   # Additional arguments to pass through to `zellij run`
-]: nothing -> record {
-  let args: list<string> = [
-    [opt enabled];
-    [--close-on-exit $close_on_exit]
-    [--floating: $floating]
-  ] | where $it.enabled | get $.opt
-  zellij run ...$args ...$rest
-  let id: int = job spawn --description=$"z-run-(random chars --length=10)" {
-    zellij run --floating --close-on-exit -- ...$rest;
-    zellij action hide-floating-panes;
+]: nothing -> oneof<nothing, string, record> {
+  {|| ^zellij run $commands ...$rest } | if $as_job {
+    let spawn: closure;
+    let id: int = job spawn --description=$'session_exec_(random chars --length=8)' $spawn
+    job list | where id == $id | into record
+  } else {
+    do --capture-errors $in
   }
-  job list | where id == $id | first
 }
 
 # Enter a Zellij session, creating it if it does not exist.
