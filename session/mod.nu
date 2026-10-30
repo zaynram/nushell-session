@@ -22,7 +22,8 @@ def --wrapped _proxy-completion [...rest: string]: nothing -> list {
 }
 
 def _session_actions []: nothing -> list { _proxy-completion action }
-def _session_run_options []: nothing -> list { _proxy-completion run }
+def _session_switch []: nothing -> list { _proxy-completion switch-session }
+def _session_run []: nothing -> list { _proxy-completion run }
 def _session_attach []: nothing -> list { _proxy-completion attach }
 def _session_edit []: nothing -> list { _proxy-completion edit }
 
@@ -84,7 +85,7 @@ export def down [
 # Switch to another Zellij session.
 export def --wrapped switch [
   name: string@_session_names # The name of the session to switch to
-  ...rest: string # Additional arguments to pass with the action
+  ...rest: string@_session_switch # Additional arguments to pass with the action
 ]: nothing -> nothing { ^zellij action switch-session $name ...$rest }
 
 # Perform an action on a Zellij session.
@@ -101,24 +102,16 @@ export def --wrapped manage [
 }
 
 # Run a command with in a Zellij session.
-#
-# Arguments for the command invocation can be passed as pipeline input
-# or included in the command string.
+# Arguments for the command invocation can be passed as pipeline input or included in the command string.
 export def --wrapped exec [
   command: string
-  # Command to run with Zellij; if prefixed with an ampersand, the `run` invocation will be spawned as a job
-  ...rest: string@_session_run_options
+  # Command to run with Zellij
+  ...rest: string@_session_run
   # Additional arguments to pass as `zellij run` options
 ]: oneof<nothing, list<string>> -> oneof<nothing, string, record> {
   let args: list<string> = default ($command | split row (char sp) | skip)
-  let name: string = $command | split row (char sp) | first | str trim --left --char='&'
-  {|| ^zellij run ...$rest -- $name ...$args } | if $command starts-with & {
-    let spawn: closure;
-    let id: int = job spawn --description=$'session_exec_(random chars --length=8)' $spawn
-    job list | where id == $id | into record
-  } else {
-    do --capture-errors $in
-  }
+  let name: string = $command | split row (char sp) | first
+  ^zellij run ...$rest -- $name ...$args
 }
 
 # Enter a Zellij session, creating it if it does not exist.
