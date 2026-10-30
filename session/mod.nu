@@ -1,85 +1,117 @@
 # Manage Zellij sessions: inspect, boot, switch, delete, and open editor panes.
 
-def session-name [context: string]: nothing -> list {
-  let names: list<string> = try { zellij list-sessions | to text | lines }
-    | parse '{name} {_}' | get name
-    | append $env.ZELLIJ_AUTO_SESSION?
-    | compact | ansi strip | str trim | flatten | uniq
-  let query: string = $context | split row ' ' | where $it !~ `-` | last
-  if ($query | is-empty) { $names } else { $names | where $it =~ $'^($query)' }
+# nu-lint-ignore-file: unused_helper_functions
+
+# ——— imports ——————————————————————————————————————————————————————————————————
+
+use std/util null-device
+
+# ——— completions ——————————————————————————————————————————————————————————————
+
+def _session_names []: nothing -> list {
+  ^zellij list-sessions --short --no-formatting | lines | str trim
 }
 
-# Get the age and status of a Zellij session(s).
-#
-# If no name is given, information for all sessions will be returned as a table.
-export def info [
-  name?: string@session-name # The name of the target session
-  --short (-s) # Return a list of only session names
-]: nothing -> oneof<list<string>, record<name: string, age: duration, status: string>, table<name: string, age: duration, status: string>> {
-
-  let data: table = try { zellij list-sessions | to text }
-    | lines
-    | parse '{name} [Created {age} ago]{status}'
-    | ansi strip name age status
-    | update name { str trim }
-
-  if $short { return $data.name }
-
-  let info: table = $data
-    | update status { str trim | parse '({state} {_}' | get --optional 0.state | default alive | str lowercase }
-    | update age {
-      parse --regex `(\d\w+)` | get capture0 | par-each {
-        let split: list = $in | split chars | split list --split before { $in !~ \d }
-        let n: int = $split | first | str join | into int
-        let unit: string = $split | skip 1 | flatten | str join
-        match $unit {
-          s => { $n }
-          m => { $n * 60 }
-          h => { $n * 3600 }
-          $u if $u =~ day => { $n * 3600 * 24 }
-          $u if $u =~ month => { $n * 3600 * 24 * 30.4375 }
-        }
-      } | math sum | append sec | str join | into duration
-    }
-
-  if $name == null { $info } else { $info | where name == $name | first }
-}
-
-# Kill and delete a Zellij session, or all Zellij sessions.
-export def del [
-  name?: string@session-name # The name of the target session
-  --all # Target all Zellij sessions
-]: nothing -> nothing {
-  match {n: $name a: $all} {
-    {n: null a: false} => { error make --unspanned 'name is required without `--all`' }
-    {a: true} => { for act in [kill delete] { try { zellij $'($act)-all-sessions' } } }
-    {n: $n} => { for act in [kill delete] { try { zellij $'($act)-session' $n } } }
-  }
-}
-
-# Switch to another Zellij session.
-export def --wrapped swap [
-  name: string@session-name # The name of the session to switch to
-  ...rest: string # Additional arguments to pass with the action
-]: nothing -> nothing {
-  zellij action switch-session $name ...$rest
-}
-
-# Perform an action(s) on a Zellij session.
-export alias act = zellij action
-
-# Invoke `zellij run` and automatically close the created pane.
-export alias exec = zellij run --close-on-exit
-
-def layout-name []: nothing -> list {
+def _layout_names []: nothing -> list {
   cd ($env.XDG_CONFIG_HOME | path join zellij)
   glob --no-dir --no-symlink layouts/*.kdl | path parse | get stem
 }
 
-# Run a fire-and-forget command with `zellij run`.
-export def --wrapped async [
-  ...rest: string # The commandline to run with `zellij run`
+def --wrapped _proxy-completion [...rest: string]: nothing -> list {
+  $'zellij ($rest | str join (char sp)) ' | commandline complete
+}
+
+alias _session_actions = _proxy-completion action
+alias _session_run_options = _proxy-completion run
+alias _session_attach = _proxy-completion attach
+alias _session_edit = _proxy-completion edit
+
+# ——— definitions ——————————————————————————————————————————————————————————————
+
+# Get the age and status of a Zellij session(s).
+#
+# If no name is given, information for all sessions will be returned as a table.
+export def list [
+  regex?: string@_session_names # Only include sessions with names matching this pattern
+  --short (-s) # Return a list of only session names
+  --active (-a) # Only include sessions that have not exited
+  --exited (-e) # Only include sessions that have already exited
+]: nothing -> oneof<list<string>, record<name: string, age: duration, status: string>, table<name: string, age: duration, status: string>> {
+  let data: table = ^zellij list-sessions --no-formatting err> (null-device)
+    | lines
+    | parse '{name} [Created {age} ago]{status}'
+    | str trim name
+    | if $short {
+      get $.name
+    } else {
+      update $.status { str trim | parse '({state} {_}' | get $.0?.state | default active | str lowercase }
+      | where ($regex == null or $it.name =~ $regex) and (
+        {active: $active exited: $exited} | get --ignore-case --optional $it.status | into bool --relaxed
+      ) | update $.age {
+        parse --regex `(\d\w+)` | get $.capture0 | par-each {
+          let split: list = $in | split chars | split list --split before { $in !~ \d }
+          let n: int = $split | first | str join | into int
+          let unit: string = $split | skip 1 | flatten | str join
+          match $unit {
+            s => { $n }
+            m => { $n * 60 }
+            h => { $n * 3600 }
+            $u if $u =~ day => { $n * 3600 * 24 }
+            $u if $u =~ month => { $n * 3600 * 24 * 30.4375 }
+          }
+        } | math sum | append sec | str join | into duration
+      }
+    }
+}
+
+# Kill and delete a Zellij session, or all Zellij sessions.
+export def down [
+  name?: string@_session_names # The name of the target session
+  --all # Target all Zellij sessions
+]: nothing -> nothing {
+  match {n: $name a: $all} {
+    {n: null a: false} => { error make --unspanned 'name is required without `--all`' }
+    {a: true} => ( for act in [kill delete] { ^zellij $'($act)-all-sessions' err> (null-device) })
+    {n: $n} => ( for act in [kill delete] { ^zellij $'($act)-session' $n err> (null-device) })
+  }
+}
+
+# Switch to another Zellij session.
+export def --wrapped switch [
+  name: string@_session_names # The name of the session to switch to
+  ...rest: string # Additional arguments to pass with the action
+]: nothing -> nothing { ^zellij action switch-session $name ...$rest }
+
+# Perform an action on a Zellij session.
+export def --wrapped manage [
+  name?: string@_session_names # The name of the session to switch to
+  ...rest: string@_session_actions # Additional arguments to pass with the action
+]: nothing -> nothing {
+  $name | match ($in | describe) {
+    nothing if $env has ZELLIJ => {|| ^zellij action ...$rest }
+    nothing if $env has ZELLIJ_SESSION_NAME => {|| ^zellij --session=($env.ZELLIJ_SESSION_NAME) action ...$rest }
+    string => {|| ^zellij --session=($in) action ...$rest }
+    nothing => { error make --unspanned 'no session name was given and none could be detected' }
+  } | do --capture-errors $in
+}
+
+# Run a command with in a Zellij session.
+export def --wrapped exec [
+  commands: string
+  # The commandline to run with `zellij run`
+  --close-on-exit (-c) = true
+  # Close the pane after the command execution completes
+  --floating (-f) = true
+  # Run the command in a new floating pane
+  ...rest: string@_session_run_options
+  # Additional arguments to pass through to `zellij run`
 ]: nothing -> record {
+  let args: list<string> = [
+    [opt enabled];
+    [--close-on-exit $close_on_exit]
+    [--floating: $floating]
+  ] | where $it.enabled | get $.opt
+  zellij run ...$args ...$rest
   let id: int = job spawn --description=$"z-run-(random chars --length=10)" {
     zellij run --floating --close-on-exit -- ...$rest;
     zellij action hide-floating-panes;
@@ -88,13 +120,12 @@ export def --wrapped async [
 }
 
 # Enter a Zellij session, creating it if it does not exist.
-export def --env boot [
-  name?: string@session-name # The target session name (can be set with `$env.ZELLIJ_AUTO_SESSION`)
-  --set-default (-s) # Save the session name as the default
+export def --env enter [
+  name?: string@_session_names # The target session name
   --attach (-a) = true # Attach to the session if it already exists
-  --layout (-l): string@layout-name # Set the layout of the session
+  --layout (-l): string@_layout_names # Set the layout of the session
+  ...rest: string@_session_attach # Additional arguments to pass through to `zellij attach`
 ]: nothing -> nothing {
-  if $name != null and $set_default { $env.ZELLIJ_AUTO_SESSION = $name }
   let session: oneof<nothing, string> = $name | default $env.ZELLIJ_AUTO_SESSION?
   let args: list<string> = if $attach {
     if $layout != null { [options --default-layout $layout] }
@@ -120,12 +151,10 @@ def is-editor-pane []: record<id: int, title: string> -> bool {
 export def --env --wrapped edit [
   target?: path # Open this file or directory in the editor
   --help (-h) # Show the help message for this function
-  --pass-help (-H) # Show the `zellij edit` help message
   --workspace (-w): directory # Set this as the root working directory
   --close-pane (-c) # Close the replaced pane instead of suspending it
-  ...rest: string # Arguments to pass through to the `edit` invocation
+  ...rest: string@_session_edit # Arguments to pass through to the `edit` invocation
 ]: oneof<nothing, path, record<name: path>> -> oneof<nothing, string> {
-  if $pass_help { zellij edit --help out+err>| return $in }
   let root: path = $workspace | default { pwd }
   let args: list = match ($in | describe | split words | first) {
     string => $in
@@ -142,11 +171,11 @@ export def --env --wrapped edit [
   | from json
   | where ($it | is-editor-pane)
   | last
-  | match $in { 
-    null => { zellij edit ...$args out+err>| }
-    {id: $n} => { 
-      zellij action focus-pane-id $n
-      zellij edit --cwd $root --in-place ...$args out+err>|
+  | match $in {
+    null => { ^zellij edit ...$args err> (null-device) }
+    {id: $n} => {
+      ^zellij action focus-pane-id $n
+      ^zellij edit --cwd $root --in-place ...$args err> (null-device)
     }
   } | ignore
   return
