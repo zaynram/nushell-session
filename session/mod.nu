@@ -21,10 +21,10 @@ def --wrapped _proxy-completion [...rest: string]: nothing -> list {
   $'zellij ($rest | str join (char sp)) ' | commandline complete
 }
 
-alias _session_actions = _proxy-completion action
-alias _session_run_options = _proxy-completion run
-alias _session_attach = _proxy-completion attach
-alias _session_edit = _proxy-completion edit
+def _session_actions []: nothing -> list { _proxy-completion action }
+def _session_run_options []: nothing -> list { _proxy-completion run }
+def _session_attach []: nothing -> list { _proxy-completion attach }
+def _session_edit []: nothing -> list { _proxy-completion edit }
 
 # ——— definitions ——————————————————————————————————————————————————————————————
 
@@ -101,15 +101,18 @@ export def --wrapped manage [
 }
 
 # Run a command with in a Zellij session.
+#
+# Arguments for the command invocation can be passed as pipeline input
+# or included in the command string.
 export def --wrapped exec [
-  commands: string
-  # Commandline to run with Zellij
-  --as-job (-j)
-  # Run the command in a background job
+  command: string
+  # Command to run with Zellij; if prefixed with an ampersand, the `run` invocation will be spawned as a job
   ...rest: string@_session_run_options
-  # Additional arguments to pass through to `zellij run`
-]: nothing -> oneof<nothing, string, record> {
-  {|| ^zellij run $commands ...$rest } | if $as_job {
+  # Additional arguments to pass as `zellij run` options
+]: oneof<nothing, list<string>> -> oneof<nothing, string, record> {
+  let args: list<string> = default ($command | split row (char sp) | skip)
+  let name: string = $command | split row (char sp) | first | str trim --left --char='&'
+  {|| ^zellij run ...$rest -- $name ...$args } | if $command starts-with & {
     let spawn: closure;
     let id: int = job spawn --description=$'session_exec_(random chars --length=8)' $spawn
     job list | where id == $id | into record
