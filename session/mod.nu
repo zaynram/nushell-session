@@ -90,15 +90,15 @@ export def --wrapped switch [
 
 # Perform an action on a Zellij session.
 export def --wrapped manage [
-  name?: string@_session_names # The name of the session to switch to
+  --session (-s): string@_session_names # The name of the session to switch to
   ...rest: string@_session_actions # Additional arguments to pass with the action
 ]: nothing -> nothing {
-  $name | match ($in | describe) {
-    nothing if $env has ZELLIJ => {|| ^zellij action ...$rest }
-    nothing if $env has ZELLIJ_SESSION_NAME => {|| ^zellij --session=($env.ZELLIJ_SESSION_NAME) action ...$rest }
-    string => {|| ^zellij --session=($in) action ...$rest }
+  $session | match ($in | describe) {
+    nothing if $env has ZELLIJ => { ^zellij action ...$rest }
+    nothing if $env has ZELLIJ_SESSION_NAME => { ^zellij --session=($env.ZELLIJ_SESSION_NAME) action ...$rest }
+    string => { ^zellij --session=($in) action ...$rest }
     nothing => { error make --unspanned 'no session name was given and none could be detected' }
-  } | do --capture-errors $in
+  }
 }
 
 # Run a commandline with in a Zellij session.
