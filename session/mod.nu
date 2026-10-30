@@ -37,31 +37,36 @@ export def list [
   --active (-a) # Only include sessions that have not exited
   --exited (-e) # Only include sessions that have already exited
 ]: nothing -> oneof<list<string>, record<name: string, age: duration, status: string>, table<name: string, age: duration, status: string>> {
-  let data: table = ^zellij list-sessions --no-formatting err> (null-device)
-    | lines
-    | parse '{name} [Created {age} ago]{status}'
-    | str trim name
-    | if $short {
-      get $.name
-    } else {
-      update $.status { str trim | parse '({state} {_}' | get $.0?.state | default active | str lowercase }
-      | where ($regex == null or $it.name =~ $regex) and (
-        {active: $active exited: $exited} | get --ignore-case --optional $it.status | into bool --relaxed
-      ) | update $.age {
-        parse --regex `(\d\w+)` | get $.capture0 | par-each {
-          let split: list = $in | split chars | split list --split before { $in !~ \d }
-          let n: int = $split | first | str join | into int
-          let unit: string = $split | skip 1 | flatten | str join
-          match $unit {
-            s => { $n }
-            m => { $n * 60 }
-            h => { $n * 3600 }
-            $u if $u =~ day => { $n * 3600 * 24 }
-            $u if $u =~ month => { $n * 3600 * 24 * 30.4375 }
-          }
-        } | math sum | append sec | str join | into duration
-      }
+  ^zellij list-sessions --no-formatting err> (null-device)
+  | lines
+  | parse '{name} [Created {age} ago]{status}'
+  | str trim name
+  | if $short {
+    get $.name
+  } else {
+    update $.status { str trim | parse '({state} {_}' | get $.0?.state | default active | str lowercase }
+    | where (
+      # match names only when regex provided
+      ($regex == null or $it.name =~ $regex) and
+      # filter status by options with everything as the default
+      $active == $exited or
+      (not $active or $it.status == active) and
+      (not $exited or $it.status == exited)
+    ) | update $.age {
+      parse --regex `(\d\w+)` | get $.capture0 | par-each {
+        let split: list = $in | split chars | split list --split before { $in !~ \d }
+        let n: int = $split | first | str join | into int
+        let unit: string = $split | skip 1 | flatten | str join
+        match $unit {
+          s => { $n }
+          m => { $n * 60 }
+          h => { $n * 3600 }
+          $u if $u =~ day => { $n * 3600 * 24 }
+          $u if $u =~ month => { $n * 3600 * 24 * 30.4375 }
+        }
+      } | math sum | append sec | str join | into duration
     }
+  }
 }
 
 # Kill and delete a Zellij session, or all Zellij sessions.
