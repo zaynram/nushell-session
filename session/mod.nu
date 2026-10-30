@@ -101,17 +101,15 @@ export def --wrapped manage [
   } | do --capture-errors $in
 }
 
-# Run a command with in a Zellij session.
-# Arguments for the command invocation can be passed as pipeline input or included in the command string.
+# Run a commandline with in a Zellij session.
 export def --wrapped exec [
-  command: string
-  # Command to run with Zellij
   ...rest: string@_session_run
   # Additional arguments to pass as `zellij run` options
 ]: oneof<nothing, list<string>> -> oneof<nothing, string, record> {
+  let command: string = $rest | first
   let args: list<string> = default ($command | split row (char sp) | skip)
   let name: string = $command | split row (char sp) | first
-  ^zellij run ...$rest -- $name ...$args
+  ^zellij run ...($rest | skip) -- $name ...$args
 }
 
 # Enter a Zellij session, creating it if it does not exist.
